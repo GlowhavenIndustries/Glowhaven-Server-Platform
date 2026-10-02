@@ -1,160 +1,297 @@
-# Glowhaven Helix
+# Glowhaven Server Platform
 
-> **The server control plane built to make infrastructure operations feel like one system.**
+<div align="center">
 
-Glowhaven Helix is a self-hosted control plane for corporate server fleets. It brings server inventory, live health, controlled operations, agent-based telemetry, enrollment, job tracking, and auditability into one operator experience.
+# **HELIX**
 
-The product is designed around a simple premise: infrastructure teams should not have to jump between a hardware console, an operating-system tool, a patch platform, an automation runner, a monitoring product, and a separate source of truth just to understand or act on one server.
+### The server control plane for your entire infrastructure.
 
-## What Helix is designed to unify
+**Inventory. Observe. Operate. Audit.**
 
-Helix takes useful ideas already proven across infrastructure tooling and connects them through one operational model.
+A self-hosted control plane for managing corporate server fleets through one secure, operator-first system.
 
-| Capability | Helix direction |
+[![CI](https://github.com/GlowhavenIndustries/Glowhaven-Server-Platform/actions/workflows/ci.yml/badge.svg)](https://github.com/GlowhavenIndustries/Glowhaven-Server-Platform/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/Python-3.12%2B-111827?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-control%20plane-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![License](https://img.shields.io/badge/license-MIT-111827.svg)](LICENSE)
+
+</div>
+
+---
+
+## The idea
+
+Modern infrastructure is usually split across too many control surfaces.
+
+One tool knows the machine. Another knows the operating system. Another handles monitoring. Another handles automation. Another stores inventory. Another records changes.
+
+**Helix brings the operational layer together.**
+
+It gives infrastructure teams one place to answer three questions quickly:
+
+**What is running? What needs attention? What can I safely change?**
+
+Helix is designed as a server control plane rather than a dashboard-only monitoring product. The system combines fleet identity, live telemetry, controlled operations, agent communication, job state, and audit events around the same infrastructure model.
+
+## Built for serious infrastructure
+
+Helix takes proven ideas from the broader infrastructure ecosystem and connects them into a focused server operations layer.
+
+| Layer | Helix approach |
 | --- | --- |
-| Fleet inventory | One view of every enrolled server and its hardware and OS identity |
-| Live health | CPU, memory, disk, uptime, status, and last-seen telemetry |
-| Controlled operations | A bounded action catalog for reboot, shutdown, service control, diagnostics, and inventory refresh |
-| Secure enrollment | Single-use enrollment tokens with expiring registration windows |
-| Server agent | Small cross-platform agent that sends telemetry and executes approved actions |
-| Operations queue | Track requested, running, succeeded, and failed work |
-| Audit trail | Record authentication, enrollment, and operator actions |
-| Self-hosting | Designed for private networks and internal infrastructure |
-| API-first control | Browser UI and machine-accessible API share the same control plane |
+| Fleet identity | Server inventory, OS identity, architecture, labels, and last-seen state |
+| Health | CPU, memory, disk, uptime, connectivity, and derived fleet status |
+| Operations | Explicitly allowlisted actions with validated parameters |
+| Execution | Lightweight server agent for Linux and Windows |
+| Work management | Queued operations with running, succeeded, and failed states |
+| Security | Sessions, CSRF protection, password hashing, enrollment controls, and security headers |
+| Accountability | Operator and agent audit events |
+| Deployment | Self-hosted, container-ready architecture |
 
-## Why the architecture looks this way
+Helix deliberately does **not** start with unrestricted remote shell execution. High-impact infrastructure software should make safe operations easy without creating an uncontrolled command gateway.
 
-Canonical MAAS is strong at bare-metal discovery, provisioning, hardware inventory, network configuration, and remote machine operations. https://canonical.com/maas/features
+---
 
-Microsoft Windows Admin Center provides browser-based Windows server and cluster administration with tools covering events, files, firewall, services, storage, virtual machines, updates, and more. https://learn.microsoft.com/en-us/windows-server/manage/windows-admin-center/use/manage-servers
+## What you can do today
 
-Red Hat Satellite focuses on infrastructure lifecycle, provisioning, configuration, patching, compliance, and distributed management through Satellite and Capsule components. https://www.redhat.com/en/technologies/management/satellite/features
+### Fleet control
 
-NetBox acts as a network source of truth across IPAM and data-center infrastructure data, while HashiCorp Nomad focuses on workload scheduling and multi-region orchestration. Tailscale adds device posture and least-privilege access controls around infrastructure connectivity. https://netboxlabs.com/docs/netbox/ https://www.hashicorp.com/en/products/nomad/features https://tailscale.com/docs/features/device-posture
+See the state of registered servers from one control surface.
 
-Helix is intentionally aimed at the overlap: **one operator control plane for server identity, state, safe actions, and the workflows that sit between infrastructure inventory and day-to-day operations.**
+- Server identity and hostname
+- Operating system and architecture
+- CPU, memory, and disk utilization
+- Uptime and last-seen telemetry
+- Online, warning, and offline state
+- Searchable fleet view
 
-## Current release
+### Controlled operations
 
-This repository contains a working early control-plane release with:
+Queue bounded actions against managed servers.
 
-- FastAPI server
-- SQLite persistence for the initial deployment
-- Local admin authentication using scrypt password hashing
-- HttpOnly session cookie and CSRF protection
-- Security headers and restrictive browser policy
-- Expiring, single-use server enrollment
-- Per-server agent credentials stored as hashes
-- Agent heartbeats and fleet telemetry
-- Server inventory snapshots
-- Queue-backed controlled operations
-- Explicit action allowlist instead of arbitrary remote shell execution
-- Service control on Linux and Windows through platform-native service managers
-- Reboot and shutdown actions
-- Bounded diagnostics collection
-- Audit events
-- Containerized deployment
-- Automated security regression tests
+- Refresh inventory
+- Collect diagnostics
+- Start a service
+- Stop a service
+- Restart a service
+- Reboot a server
+- Shut down a server
+
+Operations are validated by the control plane before they reach an agent.
+
+### Secure enrollment
+
+Add servers through expiring, single-use enrollment tokens.
+
+The workflow is intentionally simple:
+
+\`\`\`text
+Admin
+  |
+  | Generate enrollment token
+  v
+Helix Control Plane
+  |
+  | Secure registration
+  v
+Helix Agent
+  |
+  | Telemetry + controlled jobs
+  v
+Managed Server
+\`\`\`
+
+### Auditability
+
+Security-relevant activity is recorded as structured audit events, giving operators a clear trail for authentication, server enrollment, operation requests, and agent job results.
+
+---
+
+## Architecture
+
+\`\`\`text
+                         CORPORATE INFRASTRUCTURE
+                                  |
+                    +-------------+-------------+
+                    |                           |
+              Web / API Clients            Internal Operators
+                    |                           |
+                    +-------------+-------------+
+                                  |
+                         +--------v--------+
+                         |   HELIX CONTROL |
+                         |                 |
+                         | Auth            |
+                         | Fleet inventory|
+                         | Telemetry      |
+                         | Operations     |
+                         | Job queue      |
+                         | Audit          |
+                         +--------+--------+
+                                  |
+                    +-------------+-------------+
+                    |             |             |
+             +------v------+ +----v-----+ +-----v------+
+             | Production  | | Database | | Application|
+             | Server      | | Server   | | Server     |
+             | Helix Agent | | Helix    | | Helix      |
+             +-------------+ +----------+ +------------+
+                    |
+             telemetry + approved operations
+\`\`\`
+
+The current release uses SQLite for a straightforward self-hosted deployment. The architecture is intentionally shaped so the persistence layer can evolve to PostgreSQL and high-availability deployment as the platform matures.
+
+---
+
+## Security architecture
+
+Helix is built around a narrow control boundary.
+
+**Authentication**
+- Local admin authentication
+- scrypt password hashing
+- HttpOnly, SameSite session cookies
+- Expiring sessions
+
+**Browser security**
+- CSRF protection on state-changing requests
+- Restrictive Content Security Policy
+- Clickjacking protection
+- MIME sniffing protection
+- Referrer and permissions policies
+- Optional HSTS when secure cookies are enabled
+
+**Server enrollment**
+- Expiring enrollment tokens
+- Single-use enrollment
+- Per-server agent credentials
+- Agent credentials stored as SHA-256 hashes in the control plane
+
+**Remote operations**
+- Explicit server-side action allowlist
+- Strict service-name validation
+- No arbitrary command endpoint
+- Job execution and result reporting through authenticated agents
+
+**Container hardening**
+- Non-root runtime user
+- Dropped Linux capabilities
+- no-new-privileges
+- Read-only filesystem
+- Temporary filesystem for runtime scratch space
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting and security expectations.
+
+> **Important:** This repository is an engineering project, not a certification or guarantee of security. Production environments should add TLS, enterprise identity, protected backups, centralized logging, network segmentation, secrets management, and infrastructure controls appropriate to their threat model.
+
+---
 
 ## Quick start
 
-```bash
+### Local development
+
+\`\`\`bash
+git clone https://github.com/GlowhavenIndustries/Glowhaven-Server-Platform.git
+cd Glowhaven-Server-Platform
+
 python -m venv .venv
+
 # Windows
 .venv\Scripts\activate
+
 # Linux / macOS
 source .venv/bin/activate
 
 pip install -r requirements-dev.txt
 
-set HELIX_BOOTSTRAP_PASSWORD=replace-this-with-a-long-random-password
+# Set a strong bootstrap password
 # PowerShell:
-$env:HELIX_BOOTSTRAP_PASSWORD = "replace-this-with-a-long-random-password"
+$env:HELIX_BOOTSTRAP_PASSWORD="replace-with-a-long-random-password"
+
+# Bash:
+export HELIX_BOOTSTRAP_PASSWORD="replace-with-a-long-random-password"
 
 uvicorn helix.main:app --host 127.0.0.1 --port 8700
-```
+\`\`\`
 
-Open `http://127.0.0.1:8700` and sign in with the bootstrap admin account configured through `HELIX_BOOTSTRAP_ADMIN` and `HELIX_BOOTSTRAP_PASSWORD`.
+Open:
 
-For production, terminate TLS in front of Helix, set `HELIX_SECURE_COOKIES=true`, use a strong unique bootstrap password, and place the database on durable protected storage.
+\`\`\`
+http://127.0.0.1:8700
+\`\`\`
 
-## Enroll a server
+Default bootstrap username:
 
-1. Sign in as an administrator.
-2. Select **Add server**.
-3. Generate the single-use enrollment token.
-4. Install the agent on the target server.
-5. Run the agent with the Helix controller URL and enrollment token.
+\`\`\`
+admin
+\`\`\`
 
-Example:
+The password should always be supplied through environment configuration in real deployments.
 
-```bash
-python -m agent --controller https://helix.example.internal --enrollment-token <TOKEN> --name prod-web-01
-```
+### Docker
 
-After registration, the agent stores its per-server credential in a local state file with restricted permissions where supported by the operating system.
+\`\`\`bash
+cp .env.example .env
+docker compose up --build
+\`\`\`
 
-## Supported server actions
+For production, terminate TLS at a trusted reverse proxy, enable secure cookies, provide durable storage, and protect the control plane from untrusted network exposure.
 
-Helix deliberately uses a controlled action catalog. The first release supports:
+---
 
-- `refresh_inventory`
-- `collect_diagnostics`
-- `service_start`
-- `service_stop`
-- `service_restart`
-- `reboot`
-- `shutdown`
+## Enroll your first server
 
-Arbitrary remote shell execution is intentionally not part of this initial control plane. An operation must exist in the explicit server-side allowlist and pass input validation before it reaches an agent.
+Sign in as an administrator and select **Add server**.
 
-## Security model
+Generate a single-use enrollment token, then run the agent on the target server:
 
-Helix is designed for private infrastructure and follows a defense-in-depth model:
+\`\`\`bash
+python -m agent \
+  --controller https://helix.example.internal \
+  --enrollment-token <TOKEN> \
+  --name prod-web-01
+\`\`\`
 
-- Passwords are stored using scrypt-derived hashes rather than plaintext.
-- Browser sessions use HttpOnly, SameSite cookies.
-- State-changing browser requests require a matching CSRF token.
-- Server agents authenticate with per-server credentials stored as SHA-256 hashes in the control plane.
-- Enrollment tokens are single-use and expire.
-- Service names are constrained to a conservative character set.
-- Remote operations are allowlisted rather than accepting arbitrary commands from the web UI.
-- Security headers are sent by default.
-- The container runs as a non-root user and drops Linux capabilities.
-- Audit events are written for security-relevant operator and agent actions.
+After registration, the agent stores its returned credential locally with restrictive file permissions where the operating system supports them.
 
-This is an engineering baseline, not a certification claim. Enterprise deployments should add TLS certificates, identity-provider integration, durable backups, centralized log shipping, and hardened infrastructure controls appropriate to their environment.
+The agent then sends heartbeats and polls for approved work.
 
-## Architecture
+---
 
-```text
-                     +-------------------------+
-                     |      Helix Web UI       |
-                     +------------+------------+
-                                  |
-                            HTTPS / API
-                                  |
-                     +------------v------------+
-                     |     Helix Control       |
-                     |  Auth / RBAC / Jobs     |
-                     |  Inventory / Audit      |
-                     +------------+------------+
-                                  |
-                    +-------------+-------------+
-                    |             |             |
-             +------v------+ +----v-----+ +-----v------+
-             | Server A    | | Server B | | Server C  |
-             | Helix Agent | |  Agent   | |   Agent   |
-             +-------------+ +----------+ +------------+
-                    |             |             |
-             telemetry + controlled operations
-```
+## Agent behavior
 
-## Project structure
+The Helix agent is intentionally small.
 
-```text
-Glowhaven-Helix/
+It collects:
+
+- Hostname
+- Platform
+- Architecture
+- OS version
+- CPU utilization
+- Memory utilization
+- Disk utilization
+- Uptime
+- Basic machine inventory
+- Labels
+
+It can execute only the operations exposed by the control plane's action catalog.
+
+On Linux, service operations use \`systemctl\`.
+
+On Windows, service operations use \`sc.exe\`.
+
+This design keeps the security boundary visible in both the controller and the agent.
+
+---
+
+## Repository structure
+
+\`\`\`text
+Glowhaven-Server-Platform/
 ├── helix/
+│   ├── __init__.py
 │   ├── main.py
 │   ├── config.py
 │   ├── db.py
@@ -167,47 +304,132 @@ Glowhaven-Helix/
 │   └── __main__.py
 ├── tests/
 │   └── test_security.py
+├── .github/
+│   └── workflows/
+│       └── ci.yml
 ├── Dockerfile
 ├── docker-compose.yml
+├── .env.example
+├── LICENSE
+├── README.md
+├── SECURITY.md
+├── pyproject.toml
 ├── requirements.txt
-├── requirements-dev.txt
-└── README.md
-```
+└── requirements-dev.txt
+\`\`\`
 
-## Tests
+---
 
-```bash
+## Development
+
+Run the test suite:
+
+\`\`\`bash
 pytest -q
-```
+\`\`\`
 
-The security tests cover authentication, CSRF enforcement, single-use enrollment, heartbeat ingestion, fleet state, and action parameter validation.
+Run syntax validation:
 
-## Roadmap
+\`\`\`bash
+python -m py_compile helix/*.py agent/*.py
+\`\`\`
 
-The architecture is intentionally ready for a larger commercial product. The next major layers should be implemented without weakening the current security boundary:
+The CI workflow runs the test suite, Python compilation checks, and dependency vulnerability auditing.
 
-- PostgreSQL-backed HA control plane
+---
+
+## Product direction
+
+Helix is intended to grow into a complete infrastructure control platform.
+
+The next layers are planned around real operator workflows:
+
+**Identity and access**
 - OIDC and enterprise SSO
-- Fine-grained RBAC and scoped permissions
-- Approval workflows for high-impact actions
-- Maintenance windows and change scheduling
-- Patch baselines and staged rollouts
+- Fine-grained RBAC
+- Scoped permissions
+- Approval policies
+- Break-glass access controls
+
+**Infrastructure**
+- PostgreSQL
+- High availability
+- Multi-site control planes
+- Edge relays
+- Network-aware inventory
+- Rack and data-center modeling
+
+**Operations**
+- Maintenance windows
+- Scheduled changes
+- Change approvals
+- Dry runs
+- Rollback-aware jobs
+- Staged fleet rollouts
+
+**Lifecycle**
+- Patch management
 - Configuration drift detection
-- Policy enforcement and compliance views
-- BMC integrations such as IPMI and Redfish
-- Network and rack inventory integration
-- Virtualization and cluster management
-- Signed agent packages and automatic upgrade channels
-- Mutual TLS between agents and control planes
-- Multi-site relay or edge controllers
-- Alert routing and incident workflows
-- Job templates with dry-run and rollback semantics
-- PostgreSQL-backed immutable audit storage
+- Policy enforcement
+- Compliance reporting
+- Signed agent releases
+- Automatic agent updates
 
-## Operating principle
+**Hardware and platforms**
+- Redfish
+- IPMI
+- BMC workflows
+- Virtualization platforms
+- Cluster management
 
-Helix should continue to make the common operator workflow simpler without hiding the underlying infrastructure.
+**Observability**
+- Alert routing
+- Incident workflows
+- Historical telemetry
+- Capacity planning
+- Service dependency views
 
-The product should feel like a **control system for serious infrastructure**, not a decorative dashboard.
+The long-term goal is straightforward:
 
-Every feature should be real, observable, permissioned, testable, and documented.
+> **One control plane where infrastructure teams can understand the fleet, make safe changes, and prove what happened.**
+
+---
+
+## Why this project exists
+
+Enterprise infrastructure should not require operators to think about six products before they can answer one question.
+
+Helix is an open, self-hosted foundation for bringing those workflows closer together without hiding the underlying systems.
+
+It is intentionally transparent:
+
+- The control plane is inspectable.
+- Operations are explicit.
+- Agents are small.
+- Security boundaries are visible.
+- Infrastructure state is modeled directly.
+- Deployment is designed for environments that need to keep control of their data.
+
+---
+
+## Contributing
+
+Contributions are welcome.
+
+For meaningful changes, open an issue first so the architecture and operational impact can be discussed before implementation.
+
+Security vulnerabilities should **not** be posted publicly. See [SECURITY.md](SECURITY.md).
+
+---
+
+## License
+
+Helix is released under the MIT License. See [LICENSE](LICENSE).
+
+<div align="center">
+
+**Glowhaven Server Platform · Helix**
+
+*Infrastructure control, without the infrastructure maze.*
+
+</div>
