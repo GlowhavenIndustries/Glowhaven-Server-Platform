@@ -1,0 +1,15 @@
+services:
+  helix:
+    build: .
+    ports:
+      - "8700:8700"
+    env_file:
+      - .env
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
