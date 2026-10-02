@@ -82,9 +82,10 @@ $('login-form').addEventListener('submit', async e => {
   e.preventDefault();
   $('login-error').textContent = '';
   try {
+    const totpVal = $('login-totp')?.value.trim();
     await api('/api/auth/login', {
       method: 'POST',
-      body: { username: $('username').value, password: $('password').value }
+      body: { username: $('username').value, password: $('password').value, totp_code: totpVal || undefined }
     });
     showToast('Authenticated successfully.', 'success', 'Session Active');
     await checkSession();
@@ -123,7 +124,9 @@ function switchView(view) {
     overview: ['TELEMETRY', 'Fleet overview'],
     fleet: ['SERVER INVENTORY', 'Managed fleet'],
     jobs: ['GOVERNANCE', 'Operations queue'],
-    audit: ['SECURITY & COMPLIANCE', 'Audit trail']
+    audit: ['SECURITY & COMPLIANCE', 'Audit trail'],
+    users: ['IDENTITY & ACCESS', 'User accounts'],
+    security: ['CREDENTIALS & SESSIONS', 'Security & 2FA']
   };
 
   if (titles[view]) {
@@ -135,6 +138,8 @@ function switchView(view) {
   if (view === 'fleet') loadFleet();
   if (view === 'jobs') loadJobs();
   if (view === 'audit') loadAudit();
+  if (view === 'users') loadUsers();
+  if (view === 'security') loadSecurity();
 }
 
 // Mobile sidebar handling
@@ -354,17 +359,19 @@ function renderAudit() {
   if (!auditTable) return;
 
   if (list.length === 0) {
-    auditTable.innerHTML = `<tr><td colspan="5" class="muted text-center" style="padding: 28px;">No audit events found.</td></tr>`;
+    auditTable.innerHTML = `<tr><td colspan="6" class="muted text-center" style="padding: 28px;">No audit events found.</td></tr>`;
     return;
   }
 
   auditTable.innerHTML = list.map((r, idx) => {
+    const hashStr = r.hash ? `${r.hash.substring(0, 12)}...` : 'N/A';
     return `
       <tr>
         <td>${fmtTime(r.created_at)}</td>
         <td><strong>${esc(r.actor)}</strong></td>
         <td><code>${esc(r.action)}</code></td>
         <td>${esc(r.target)}</td>
+        <td><code title="${esc(r.hash)}">${esc(hashStr)}</code></td>
         <td>
           <button class="btn btn-ghost btn-sm" onclick="showAuditPayload(${idx})">
             Inspect Payload
@@ -374,6 +381,256 @@ function renderAudit() {
     `;
   }).join('');
 }
+
+async function verifyAuditChain() {
+  try {
+    const res = await api('/api/audit/verify');
+    const banner = $('audit-verify-banner');
+    if (banner) {
+      banner.classList.remove('hidden');
+      if (res.verified) {
+        $('audit-banner-title').textContent = `Audit Chain Verified Integrity`;
+        $('audit-banner-sub').textContent = `All ${res.total_records} audit log entries cryptographically validated against SHA-256 hash chain.`;
+        showToast(`Audit log chain verified (${res.total_records} records)`, 'success', 'Integrity Validated');
+      } else {
+        $('audit-banner-title').textContent = `Audit Chain Integrity FAILURE`;
+        $('audit-banner-sub').textContent = `Tampering or mismatch detected on audit log record ID ${res.tampered_id}: ${res.reason}`;
+        showToast(`Audit chain mismatch on ID ${res.tampered_id}`, 'error', 'Integrity Failure');
+      }
+    }
+  } catch (err) {
+    showToast(err.message, 'error', 'Verification Failed');
+  }
+}
+
+if ($('verify-audit-btn')) $('verify-audit-btn').addEventListener('click', verifyAuditChain);
+
+// User Accounts Management (Admin)
+async function loadUsers() {
+  try {
+    const users = await api('/api/users');
+    state.users = users;
+    renderUsers();
+  } catch (err) {
+    showToast(err.message, 'error', 'Failed to load users');
+  }
+}
+
+function renderUsers() {
+  const usersTable = $('users-table');
+  if (!usersTable) return;
+
+  if (!state.users || state.users.length === 0) {
+    usersTable.innerHTML = `<tr><td colspan="5" class="muted text-center" style="padding: 28px;">No user accounts found.</td></tr>`;
+    return;
+  }
+
+  usersTable.innerHTML = state.users.map(u => {
+    const mfaPill = u.totp_enabled
+      ? `<span class="status-pill online"><span class="status-dot online"></span> Enabled</span>`
+      : `<span class="status-pill offline"><span class="status-dot offline"></span> Disabled</span>`;
+
+    return `
+      <tr>
+        <td><strong>${esc(u.username)}</strong></td>
+        <td>
+          <select class="btn btn-ghost btn-sm" onchange="changeUserRole(${u.id}, this.value)">
+            <option value="viewer" ${u.role === 'viewer' ? 'selected' : ''}>viewer</option>
+            <option value="operator" ${u.role === 'operator' ? 'selected' : ''}>operator</option>
+            <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>admin</option>
+          </select>
+        </td>
+        <td>${mfaPill}</td>
+        <td>${fmtTime(u.created_at)}</td>
+        <td>
+          <button class="btn btn-ghost btn-sm" onclick="promptResetPassword(${u.id}, '${esc(u.username)}')">Reset Password</button>
+          <button class="btn btn-ghost btn-sm" onclick="deleteUserAccount(${u.id}, '${esc(u.username)}')">Delete</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+window.changeUserRole = async (userId, newRole) => {
+  try {
+    await api(`/api/users/${userId}/role`, {
+      method: 'PATCH',
+      body: { role: newRole }
+    });
+    showToast(`Role updated to ${newRole}`, 'success', 'Role Updated');
+    await loadUsers();
+  } catch (err) {
+    showToast(err.message, 'error', 'Role Update Failed');
+    await loadUsers();
+  }
+};
+
+let resetTargetUserId = null;
+window.promptResetPassword = (userId, username) => {
+  resetTargetUserId = userId;
+  $('reset-password-title').textContent = `Reset Password for ${username}`;
+  $('reset-password-modal').classList.remove('hidden');
+};
+
+$('reset-password-form')?.addEventListener('submit', async e => {
+  e.preventDefault();
+  if (!resetTargetUserId) return;
+  const pass = $('reset-new-password').value;
+  try {
+    await api(`/api/users/${resetTargetUserId}/password`, {
+      method: 'POST',
+      body: { password: pass }
+    });
+    showToast('Password reset successfully.', 'success', 'Password Updated');
+    $('reset-password-modal').classList.add('hidden');
+    $('reset-new-password').value = '';
+    resetTargetUserId = null;
+  } catch (err) {
+    showToast(err.message, 'error', 'Password Reset Failed');
+  }
+});
+
+$('close-reset-password-modal')?.addEventListener('click', () => $('reset-password-modal').classList.add('hidden'));
+$('cancel-reset-password')?.addEventListener('click', () => $('reset-password-modal').classList.add('hidden'));
+
+window.deleteUserAccount = async (userId, username) => {
+  if (!confirm(`Are you sure you want to delete user account "${username}"?`)) return;
+  try {
+    await api(`/api/users/${userId}`, { method: 'DELETE' });
+    showToast(`User ${username} deleted.`, 'success', 'User Deleted');
+    await loadUsers();
+  } catch (err) {
+    showToast(err.message, 'error', 'Delete Failed');
+  }
+};
+
+if ($('add-user-btn')) {
+  $('add-user-btn').addEventListener('click', () => {
+    $('create-user-modal').classList.remove('hidden');
+  });
+}
+
+$('close-create-user-modal')?.addEventListener('click', () => $('create-user-modal').classList.add('hidden'));
+$('cancel-create-user')?.addEventListener('click', () => $('create-user-modal').classList.add('hidden'));
+
+$('create-user-form')?.addEventListener('submit', async e => {
+  e.preventDefault();
+  try {
+    await api('/api/users', {
+      method: 'POST',
+      body: {
+        username: $('new-username').value,
+        password: $('new-password').value,
+        role: $('new-role').value
+      }
+    });
+    showToast('User account created.', 'success', 'User Created');
+    $('create-user-modal').classList.add('hidden');
+    $('new-username').value = '';
+    $('new-password').value = '';
+    await loadUsers();
+  } catch (err) {
+    showToast(err.message, 'error', 'User Creation Failed');
+  }
+});
+
+// Security & 2FA View
+async function loadSecurity() {
+  if (!state.me) return;
+  const isEnabled = state.me.totp_enabled;
+  const statusPill = $('mfa-status-pill');
+  if (statusPill) {
+    statusPill.className = `status-pill ${isEnabled ? 'online' : 'offline'}`;
+    statusPill.innerHTML = `<span class="status-dot ${isEnabled ? 'online' : 'offline'}"></span> 2FA ${isEnabled ? 'Enabled' : 'Disabled'}`;
+  }
+  $('mfa-init-btn')?.classList.toggle('hidden', isEnabled);
+  $('mfa-disable-init-btn')?.classList.toggle('hidden', !isEnabled);
+  $('mfa-setup-box')?.classList.add('hidden');
+  await loadSessions();
+}
+
+$('mfa-init-btn')?.addEventListener('click', async () => {
+  try {
+    const res = await api('/api/auth/mfa/setup', { method: 'POST' });
+    $('mfa-secret-code').textContent = res.secret;
+    $('mfa-uri-text').textContent = res.otpauth_url;
+    $('mfa-setup-box').classList.remove('hidden');
+    showToast('TOTP secret generated. Scan or type key into app.', 'info', '2FA Setup');
+  } catch (err) {
+    showToast(err.message, 'error', '2FA Setup Failed');
+  }
+});
+
+$('mfa-enable-btn')?.addEventListener('click', async () => {
+  const code = $('mfa-verify-code').value.trim();
+  if (!code) {
+    showToast('Enter 6-digit verification code.', 'error', 'Validation Error');
+    return;
+  }
+  try {
+    await api('/api/auth/mfa/enable', {
+      method: 'POST',
+      body: { totp_code: code }
+    });
+    showToast('2FA enabled successfully!', 'success', '2FA Activated');
+    state.me.totp_enabled = true;
+    await loadSecurity();
+  } catch (err) {
+    showToast(err.message, 'error', 'Verification Failed');
+  }
+});
+
+$('mfa-disable-init-btn')?.addEventListener('click', async () => {
+  const code = prompt('Enter 6-digit 2FA code to confirm disabling:');
+  if (!code) return;
+  try {
+    await api('/api/auth/mfa/disable', {
+      method: 'POST',
+      body: { totp_code: code.trim() }
+    });
+    showToast('2FA has been disabled.', 'info', '2FA Disabled');
+    state.me.totp_enabled = false;
+    await loadSecurity();
+  } catch (err) {
+    showToast(err.message, 'error', 'Disabling 2FA Failed');
+  }
+});
+
+async function loadSessions() {
+  try {
+    const sessions = await api('/api/sessions');
+    const tbody = $('sessions-table');
+    if (!tbody) return;
+
+    tbody.innerHTML = sessions.map(s => {
+      const isCurrent = s.is_current ? ' (Current)' : '';
+      return `
+        <tr>
+          <td>${fmtTime(s.expires_at)}</td>
+          <td>${s.is_current ? '<strong>Active Session</strong>' : 'Active'}</td>
+          <td>
+            ${s.is_current
+              ? '<span class="muted-small">This Session</span>'
+              : `<button class="btn btn-ghost btn-sm" onclick="revokeUserSession('${s.id}')">Revoke</button>`
+            }
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    showToast(err.message, 'error', 'Failed to load sessions');
+  }
+}
+
+window.revokeUserSession = async (sessionId) => {
+  try {
+    await api(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+    showToast('Session revoked.', 'success', 'Session Revoked');
+    await loadSessions();
+  } catch (err) {
+    showToast(err.message, 'error', 'Revocation Failed');
+  }
+};
 
 window.showAuditPayload = (idx) => {
   const item = state.audit[idx];
@@ -487,10 +744,11 @@ if ($('confirm-action')) {
       }
       params.service = svcName;
     }
+    const stepupCode = $('stepup-code')?.value.trim();
     try {
       await api(`/api/servers/${p.id}/jobs`, {
         method: 'POST',
-        body: { action: p.action, params }
+        body: { action: p.action, params, stepup_code: stepupCode || undefined }
       });
       showToast(`Operation queued for action: ${p.action}`, 'success', 'Action Queued');
       closeActionModal();
@@ -516,12 +774,16 @@ window.queueAction = (id, action) => {
   }[action] || 'Queue a controlled operation against host.';
 
   $('service-field').classList.toggle('hidden', !action.startsWith('service_'));
+  const needsStepUp = ['reboot', 'shutdown'].includes(action) && state.me?.totp_enabled;
+  $('stepup-field').classList.toggle('hidden', !needsStepUp);
+  if ($('stepup-code')) $('stepup-code').value = '';
   $('action-modal').classList.remove('hidden');
 };
 
 function closeActionModal() {
   state.pendingAction = null;
   $('service-field').classList.add('hidden');
+  $('stepup-field').classList.add('hidden');
   $('action-modal').classList.add('hidden');
 }
 

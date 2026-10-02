@@ -14,9 +14,22 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
+from collections import defaultdict
+import time
+
 from .config import settings
 from .db import Database
-from .security import hash_secret, hash_token, token, utcnow, verify_secret
+from .security import (
+    compute_audit_hash,
+    generate_totp_secret,
+    get_totp_uri,
+    hash_secret,
+    hash_token,
+    token,
+    utcnow,
+    verify_secret,
+    verify_totp_code,
+)
 
 
 app = FastAPI(title="Glowhaven Helix", version="0.1.0", docs_url="/api/docs", redoc_url=None)
@@ -37,10 +50,43 @@ ALLOWED_ACTIONS = {
 SERVICE_RE = re.compile(r"^[A-Za-z0-9_.@-]{1,128}$")
 
 
+class SimpleRateLimiter:
+    def __init__(self):
+        self.requests: dict[str, list[float]] = defaultdict(list)
+
+    def check(self, key: str, max_requests: int, window_seconds: int) -> bool:
+        now = time.time()
+        cutoff = now - window_seconds
+        timestamps = [t for t in self.requests[key] if t > cutoff]
+        if len(timestamps) >= max_requests:
+            return False
+        timestamps.append(now)
+        self.requests[key] = timestamps
+        return True
+
+rate_limiter = SimpleRateLimiter()
+
+def enforce_rate_limit(key: str, max_requests: int = 15, window_seconds: int = 60) -> None:
+    if not rate_limiter.check(key, max_requests, window_seconds):
+        raise HTTPException(status_code=429, detail="too many requests, please slow down")
+
+def validate_password_strength(password: str) -> None:
+    if len(password) < 8:
+        raise HTTPException(status_code=422, detail="password must be at least 8 characters long")
+    if not any(c.isalpha() for c in password) or not any(c.isdigit() for c in password):
+        raise HTTPException(status_code=422, detail="password must contain both letters and digits")
+
 def audit(actor: str, action: str, target: str, detail: dict[str, Any] | None = None) -> None:
+    created_at = utcnow().isoformat()
+    detail_json = json.dumps(detail or {}, separators=(",", ":"), sort_keys=True)
+
+    last = db.one("SELECT hash FROM audit_log ORDER BY id DESC LIMIT 1")
+    prev_hash = last["hash"] if (last and last["hash"]) else "0" * 64
+    entry_hash = compute_audit_hash(prev_hash, actor, action, target, detail_json, created_at)
+
     db.execute(
-        "INSERT INTO audit_log(actor, action, target, detail_json, created_at) VALUES(?,?,?,?,?)",
-        (actor, action, target, json.dumps(detail or {}, separators=(",", ":")), utcnow().isoformat()),
+        "INSERT INTO audit_log(actor, action, target, detail_json, prev_hash, hash, created_at) VALUES(?,?,?,?,?,?,?)",
+        (actor, action, target, detail_json, prev_hash, entry_hash, created_at),
     )
 
 
@@ -81,11 +127,13 @@ async def security_headers(request: Request, call_next):
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=128)
     password: str = Field(min_length=1, max_length=512)
+    totp_code: str | None = Field(default=None, max_length=12)
 
 
 class JobRequest(BaseModel):
     action: str = Field(min_length=1, max_length=64)
     params: dict[str, Any] = Field(default_factory=dict)
+    stepup_code: str | None = Field(default=None, max_length=12)
 
     @field_validator("action")
     @classmethod
@@ -93,6 +141,24 @@ class JobRequest(BaseModel):
         if value not in ALLOWED_ACTIONS:
             raise ValueError("unsupported action")
         return value
+
+
+class CreateUserRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=8, max_length=512)
+    role: str = Field(pattern=r"^(admin|operator|viewer)$")
+
+
+class UpdateUserRoleRequest(BaseModel):
+    role: str = Field(pattern=r"^(admin|operator|viewer)$")
+
+
+class UpdateUserPasswordRequest(BaseModel):
+    password: str = Field(min_length=8, max_length=512)
+
+
+class MfaCodeRequest(BaseModel):
+    totp_code: str = Field(min_length=6, max_length=6)
 
 
 class Heartbeat(BaseModel):
@@ -122,12 +188,12 @@ class AgentJobResult(BaseModel):
     result: dict[str, Any] = Field(default_factory=dict)
 
 
-def current_session(session_id: str | None = Cookie(default=None, alias=SESSION_COOKIE)) -> sqlite3.Row:
-    if not session_id:
+def current_session(cookie_session_id: str | None = Cookie(default=None, alias=SESSION_COOKIE)) -> sqlite3.Row:
+    if not cookie_session_id:
         raise HTTPException(status_code=401, detail="authentication required")
     row = db.one(
-        "SELECT s.*, u.username, u.role FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=?",
-        (session_id,),
+        "SELECT s.*, u.username, u.role, u.totp_secret, u.totp_enabled FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=?",
+        (cookie_session_id,),
     )
     if not row or row["expires_at"] <= utcnow().isoformat():
         raise HTTPException(status_code=401, detail="session expired")
@@ -175,10 +241,37 @@ async def csrf(response: Response, session: sqlite3.Row = Depends(current_sessio
 
 
 @app.post("/api/auth/login")
-async def login(payload: LoginRequest, response: Response):
-    row = db.one("SELECT * FROM users WHERE username=?", (payload.username.strip(),))
+async def login(payload: LoginRequest, request: Request, response: Response):
+    client_ip = request.client.host if request.client else "unknown"
+    enforce_rate_limit(f"login:{client_ip}", max_requests=10, window_seconds=60)
+
+    username = payload.username.strip()
+    row = db.one("SELECT * FROM users WHERE username=?", (username,))
+
+    if row and row["locked_until"]:
+        if row["locked_until"] > utcnow().isoformat():
+            audit(username, "auth.login_failed", "lockout", {"reason": "account_locked"})
+            raise HTTPException(status_code=429, detail="account is locked due to multiple failed login attempts")
+
     if not row or not verify_secret(payload.password, row["password_hash"]):
+        if row:
+            attempts = row["failed_login_attempts"] + 1
+            if attempts >= 5:
+                locked_time = (utcnow() + timedelta(minutes=15)).isoformat()
+                db.execute("UPDATE users SET failed_login_attempts=?, locked_until=? WHERE id=?", (attempts, locked_time, row["id"]))
+                audit(username, "auth.account_locked", "user", {"attempts": attempts})
+            else:
+                db.execute("UPDATE users SET failed_login_attempts=? WHERE id=?", (attempts, row["id"]))
+        audit(username or "unknown", "auth.login_failed", "session", {"reason": "invalid_credentials"})
         raise HTTPException(status_code=401, detail="invalid credentials")
+
+    if row["totp_enabled"]:
+        if not payload.totp_code or not verify_totp_code(row["totp_secret"], payload.totp_code):
+            audit(username, "auth.login_failed", "mfa", {"reason": "mfa_required_or_invalid"})
+            raise HTTPException(status_code=401, detail="mfa code required or invalid")
+
+    db.execute("UPDATE users SET failed_login_attempts=0, locked_until=NULL WHERE id=?", (row["id"],))
+
     sid = token()
     csrf_token = token()
     expires = utcnow() + timedelta(hours=settings.session_ttl_hours)
@@ -189,7 +282,124 @@ async def login(payload: LoginRequest, response: Response):
     response.set_cookie(SESSION_COOKIE, sid, secure=settings.secure_cookies, httponly=True, samesite="strict", max_age=settings.session_ttl_hours * 3600)
     response.set_cookie(CSRF_COOKIE, csrf_token, secure=settings.secure_cookies, httponly=False, samesite="strict", max_age=3600)
     audit(row["username"], "auth.login", "session")
-    return {"username": row["username"], "role": row["role"]}
+    return {"username": row["username"], "role": row["role"], "totp_enabled": bool(row["totp_enabled"])}
+
+
+@app.post("/api/auth/mfa/setup")
+async def mfa_setup(session: sqlite3.Row = Depends(require_csrf)):
+    enforce_rate_limit(f"mfa:{session['user_id']}", max_requests=10, window_seconds=60)
+    sec = generate_totp_secret()
+    db.execute("UPDATE users SET totp_secret=? WHERE id=?", (sec, session["user_id"]))
+    uri = get_totp_uri(sec, session["username"])
+    audit(session["username"], "auth.mfa_setup", "user")
+    return {"secret": sec, "otpauth_url": uri}
+
+
+@app.post("/api/auth/mfa/enable")
+async def mfa_enable(payload: MfaCodeRequest, session: sqlite3.Row = Depends(require_csrf)):
+    enforce_rate_limit(f"mfa:{session['user_id']}", max_requests=10, window_seconds=60)
+    row = db.one("SELECT totp_secret FROM users WHERE id=?", (session["user_id"],))
+    if not row or not row["totp_secret"]:
+        raise HTTPException(status_code=400, detail="mfa not initialized; run setup first")
+    if not verify_totp_code(row["totp_secret"], payload.totp_code):
+        raise HTTPException(status_code=400, detail="invalid mfa code")
+    db.execute("UPDATE users SET totp_enabled=1 WHERE id=?", (session["user_id"],))
+    audit(session["username"], "auth.mfa_enabled", "user")
+    return {"ok": True}
+
+
+@app.post("/api/auth/mfa/disable")
+async def mfa_disable(payload: MfaCodeRequest, session: sqlite3.Row = Depends(require_csrf)):
+    enforce_rate_limit(f"mfa:{session['user_id']}", max_requests=10, window_seconds=60)
+    row = db.one("SELECT totp_secret FROM users WHERE id=?", (session["user_id"],))
+    if not row or not row["totp_secret"] or not verify_totp_code(row["totp_secret"], payload.totp_code):
+        raise HTTPException(status_code=400, detail="invalid mfa code")
+    db.execute("UPDATE users SET totp_enabled=0, totp_secret='' WHERE id=?", (session["user_id"],))
+    audit(session["username"], "auth.mfa_disabled", "user")
+    return {"ok": True}
+
+
+@app.get("/api/sessions")
+async def list_sessions(session: sqlite3.Row = Depends(current_session)):
+    rows = db.all("SELECT id, expires_at FROM sessions WHERE user_id=? ORDER BY expires_at DESC", (session["user_id"],))
+    return [{"id": r["id"], "expires_at": r["expires_at"], "is_current": r["id"] == session["id"]} for r in rows]
+
+
+@app.delete("/api/sessions/{session_id}")
+async def revoke_session(session_id: str, session: sqlite3.Row = Depends(require_csrf)):
+    target_session = db.one("SELECT * FROM sessions WHERE id=?", (session_id,))
+    if not target_session:
+        raise HTTPException(status_code=404, detail="session not found")
+    if target_session["user_id"] != session["user_id"] and session["role"] != "admin":
+        raise HTTPException(status_code=403, detail="insufficient permissions to revoke session")
+    db.execute("DELETE FROM sessions WHERE id=?", (session_id,))
+    audit(session["username"], "session.revoke", session_id)
+    return {"ok": True}
+
+
+@app.get("/api/users")
+async def list_users(session: sqlite3.Row = Depends(require_role("admin"))):
+    rows = db.all("SELECT id, username, role, totp_enabled, created_at FROM users ORDER BY username")
+    return [{"id": r["id"], "username": r["username"], "role": r["role"], "totp_enabled": bool(r["totp_enabled"]), "created_at": r["created_at"]} for r in rows]
+
+
+@app.post("/api/users")
+async def create_user(payload: CreateUserRequest, session: sqlite3.Row = Depends(require_role("admin")), _: sqlite3.Row = Depends(require_csrf)):
+    validate_password_strength(payload.password)
+    username = payload.username.strip()
+    existing = db.one("SELECT id FROM users WHERE username=?", (username,))
+    if existing:
+        raise HTTPException(status_code=400, detail="username already exists")
+    db.execute(
+        "INSERT INTO users(username, password_hash, role, created_at) VALUES(?,?,?,?)",
+        (username, hash_secret(payload.password), payload.role, utcnow().isoformat()),
+    )
+    audit(session["username"], "user.create", username, {"role": payload.role})
+    return {"username": username, "role": payload.role}
+
+
+@app.patch("/api/users/{user_id}/role")
+async def update_user_role(user_id: int, payload: UpdateUserRoleRequest, session: sqlite3.Row = Depends(require_role("admin")), _: sqlite3.Row = Depends(require_csrf)):
+    target_user = db.one("SELECT * FROM users WHERE id=?", (user_id,))
+    if not target_user:
+        raise HTTPException(status_code=404, detail="user not found")
+    if target_user["id"] == session["user_id"] and payload.role != "admin":
+        admin_count = db.one("SELECT COUNT(*) as c FROM users WHERE role='admin'")["c"]
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="cannot demote the sole admin user")
+    db.execute("UPDATE users SET role=? WHERE id=?", (payload.role, user_id))
+    audit(session["username"], "user.update_role", target_user["username"], {"new_role": payload.role})
+    return {"ok": True}
+
+
+@app.post("/api/users/{user_id}/password")
+async def update_user_password(user_id: int, payload: UpdateUserPasswordRequest, session: sqlite3.Row = Depends(require_role("admin")), _: sqlite3.Row = Depends(require_csrf)):
+    validate_password_strength(payload.password)
+    target_user = db.one("SELECT * FROM users WHERE id=?", (user_id,))
+    if not target_user:
+        raise HTTPException(status_code=404, detail="user not found")
+    db.execute("UPDATE users SET password_hash=? WHERE id=?", (hash_secret(payload.password), user_id))
+    # Revoke all existing sessions for this user upon password reset
+    db.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+    audit(session["username"], "user.update_password", target_user["username"])
+    return {"ok": True}
+
+
+@app.delete("/api/users/{user_id}")
+async def delete_user(user_id: int, session: sqlite3.Row = Depends(require_role("admin")), _: sqlite3.Row = Depends(require_csrf)):
+    target_user = db.one("SELECT * FROM users WHERE id=?", (user_id,))
+    if not target_user:
+        raise HTTPException(status_code=404, detail="user not found")
+    if target_user["id"] == session["user_id"]:
+        raise HTTPException(status_code=400, detail="cannot delete your own user account")
+    if target_user["role"] == "admin":
+        admin_count = db.one("SELECT COUNT(*) as c FROM users WHERE role='admin'")["c"]
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="cannot delete sole admin user")
+    db.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+    db.execute("DELETE FROM users WHERE id=?", (user_id,))
+    audit(session["username"], "user.delete", target_user["username"])
+    return {"ok": True}
 
 
 @app.post("/api/auth/logout")
@@ -202,7 +412,7 @@ async def logout(response: Response, session: sqlite3.Row = Depends(require_csrf
 
 @app.get("/api/me")
 async def me(session: sqlite3.Row = Depends(current_session)):
-    return {"username": session["username"], "role": session["role"]}
+    return {"username": session["username"], "role": session["role"], "totp_enabled": bool(session["totp_enabled"])}
 
 
 @app.get("/api/summary")
@@ -290,10 +500,24 @@ def serialize_job(row: sqlite3.Row) -> dict[str, Any]:
 
 
 @app.post("/api/servers/{server_id}/jobs")
-async def create_job(server_id: str, payload: JobRequest, session: sqlite3.Row = Depends(require_role("admin", "operator")), _: sqlite3.Row = Depends(require_csrf)):
+async def create_job(
+    server_id: str,
+    payload: JobRequest,
+    request: Request,
+    session: sqlite3.Row = Depends(require_role("admin", "operator")),
+    _: sqlite3.Row = Depends(require_csrf),
+):
     server_row = db.one("SELECT * FROM servers WHERE id=?", (server_id,))
     if not server_row:
         raise HTTPException(status_code=404, detail="server not found")
+
+    # Step-up authentication enforcement for high impact actions (reboot, shutdown)
+    if payload.action in {"reboot", "shutdown"} and session["totp_enabled"]:
+        stepup_header = request.headers.get("X-StepUp-TOTP")
+        code = payload.stepup_code or stepup_header
+        if not code or not verify_totp_code(session["totp_secret"], code):
+            raise HTTPException(status_code=403, detail="step-up mfa code required for this action")
+
     params = validate_job_params(payload.action, payload.params)
     job_id = str(uuid.uuid4())
     now = utcnow().isoformat()
@@ -312,7 +536,9 @@ async def jobs(_: sqlite3.Row = Depends(current_session)):
 
 
 @app.post("/api/enrollment-tokens")
-async def create_enrollment(session: sqlite3.Row = Depends(require_role("admin")), _: sqlite3.Row = Depends(require_csrf)):
+async def create_enrollment(request: Request, session: sqlite3.Row = Depends(require_role("admin")), _: sqlite3.Row = Depends(require_csrf)):
+    client_ip = request.client.host if request.client else "unknown"
+    enforce_rate_limit(f"enrollment:{client_ip}", max_requests=10, window_seconds=60)
     raw = token()
     expires = utcnow() + timedelta(minutes=settings.enrollment_ttl_minutes)
     db.execute(
@@ -324,7 +550,9 @@ async def create_enrollment(session: sqlite3.Row = Depends(require_role("admin")
 
 
 @app.post("/api/agent/register")
-async def agent_register(payload: AgentRegister):
+async def agent_register(payload: AgentRegister, request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    enforce_rate_limit(f"agent_register:{client_ip}", max_requests=20, window_seconds=60)
     enrollment = db.one("SELECT * FROM enrollment_tokens WHERE token_hash=?", (hash_token(payload.enrollment_token),))
     if not enrollment or enrollment["used_at"] or enrollment["expires_at"] <= utcnow().isoformat():
         raise HTTPException(status_code=401, detail="invalid or expired enrollment token")
@@ -371,8 +599,44 @@ async def agent_job_report(job_id: str, payload: AgentJobResult, server_row: sql
 
 @app.get("/api/audit")
 async def audit_log(session: sqlite3.Row = Depends(require_role("admin"))):
-    rows = db.all("SELECT actor,action,target,detail_json,created_at FROM audit_log ORDER BY id DESC LIMIT 250")
-    return [{"actor": r["actor"], "action": r["action"], "target": r["target"], "detail": db.json(r["detail_json"]), "created_at": r["created_at"]} for r in rows]
+    rows = db.all("SELECT id, actor, action, target, detail_json, prev_hash, hash, created_at FROM audit_log ORDER BY id DESC LIMIT 250")
+    return [
+        {
+            "id": r["id"],
+            "actor": r["actor"],
+            "action": r["action"],
+            "target": r["target"],
+            "detail": db.json(r["detail_json"]),
+            "prev_hash": r["prev_hash"],
+            "hash": r["hash"],
+            "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
+
+
+@app.get("/api/audit/verify")
+async def verify_audit_trail(session: sqlite3.Row = Depends(require_role("admin"))):
+    rows = db.all("SELECT id, actor, action, target, detail_json, prev_hash, hash, created_at FROM audit_log ORDER BY id ASC")
+    expected_prev = "0" * 64
+    for r in rows:
+        if r["prev_hash"] != expected_prev:
+            return {
+                "verified": False,
+                "tampered_id": r["id"],
+                "reason": f"prev_hash mismatch on record {r['id']}",
+            }
+        recomputed = compute_audit_hash(
+            r["prev_hash"], r["actor"], r["action"], r["target"], r["detail_json"], r["created_at"]
+        )
+        if r["hash"] != recomputed:
+            return {
+                "verified": False,
+                "tampered_id": r["id"],
+                "reason": f"hash verification failed on record {r['id']}",
+            }
+        expected_prev = r["hash"]
+    return {"verified": True, "total_records": len(rows)}
 
 
 @app.get("/healthz")

@@ -12,6 +12,10 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL CHECK(role IN ('admin', 'operator', 'viewer')),
+    totp_secret TEXT NOT NULL DEFAULT '',
+    totp_enabled INTEGER NOT NULL DEFAULT 0,
+    failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+    locked_until TEXT,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sessions (
@@ -62,6 +66,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
     action TEXT NOT NULL,
     target TEXT NOT NULL,
     detail_json TEXT NOT NULL DEFAULT '{}',
+    prev_hash TEXT NOT NULL DEFAULT '',
+    hash TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_servers_status ON servers(status);
@@ -93,6 +99,25 @@ class Database:
     def init(self) -> None:
         with self.connect() as conn:
             conn.executescript(SCHEMA)
+            self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        columns_users = [row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()]
+        if "totp_secret" not in columns_users:
+            conn.execute("ALTER TABLE users ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''")
+        if "totp_enabled" not in columns_users:
+            conn.execute("ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0")
+        if "failed_login_attempts" not in columns_users:
+            conn.execute("ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER NOT NULL DEFAULT 0")
+        if "locked_until" not in columns_users:
+            conn.execute("ALTER TABLE users ADD COLUMN locked_until TEXT")
+
+        columns_audit = [row["name"] for row in conn.execute("PRAGMA table_info(audit_log)").fetchall()]
+        if "prev_hash" not in columns_audit:
+            conn.execute("ALTER TABLE audit_log ADD COLUMN prev_hash TEXT NOT NULL DEFAULT ''")
+        if "hash" not in columns_audit:
+            conn.execute("ALTER TABLE audit_log ADD COLUMN hash TEXT NOT NULL DEFAULT ''")
 
     def one(self, query: str, params: tuple[Any, ...] = ()) -> sqlite3.Row | None:
         with self.connect() as conn:
