@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.env
+helix.db
+*.sqlite3
+.DS_Store
+agent/agent.json
