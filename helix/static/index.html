@@ -1,15 +1,427 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07090c"><title>Helix Control</title><link rel="stylesheet" href="/static/app.css"></head>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07080a">
+  <title>Helix Control Plane · Glowhaven</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
 <body>
-<div id="login" class="login-shell"><div class="login-card"><div class="brand-mark">H</div><div class="eyebrow">SERVER CONTROL PLANE</div><h1>Helix</h1><p>One control surface for your infrastructure fleet.</p><form id="login-form"><label>Username<input id="username" autocomplete="username" required></label><label>Password<input id="password" type="password" autocomplete="current-password" required></label><button class="primary wide" type="submit">Sign in</button><div id="login-error" class="form-error"></div></form></div></div>
-<div id="app" class="app-shell hidden"><aside class="sidebar"><div class="brand"><div class="brand-mark small">H</div><div><strong>Helix</strong><span>Infrastructure Control</span></div></div><nav><button class="nav-item active" data-view="overview"><span>Overview</span><kbd>01</kbd></button><button class="nav-item" data-view="fleet"><span>Fleet</span><kbd>02</kbd></button><button class="nav-item" data-view="jobs"><span>Operations</span><kbd>03</kbd></button><button class="nav-item admin-only" data-view="audit"><span>Audit</span><kbd>04</kbd></button></nav><div class="sidebar-footer"><div class="status-line"><span class="status-dot online"></span><span>Control plane healthy</span></div><button id="logout" class="ghost">Sign out</button></div></aside>
-<main class="workspace"><header class="topbar"><div><div class="eyebrow" id="view-kicker">OPERATIONS</div><h2 id="view-title">Fleet overview</h2></div><div class="top-actions"><span id="identity" class="identity"></span><button id="add-server" class="primary admin-only">Add server</button></div></header>
-<section id="overview-view" class="view"><div class="summary-grid"><article class="metric"><span>Fleet</span><strong id="metric-servers">0</strong><small>Total registered servers</small></article><article class="metric"><span>Healthy</span><strong id="metric-online">0</strong><small id="metric-online-sub">Online now</small></article><article class="metric"><span>Attention</span><strong id="metric-warning">0</strong><small>Servers reporting warning state</small></article><article class="metric"><span>Queued work</span><strong id="metric-queued">0</strong><small id="metric-failed-sub">0 failed in last 24h</small></article></div><div class="section-head"><div><div class="eyebrow">LIVE FLEET</div><h3>Infrastructure at a glance</h3></div><button class="ghost" id="refresh-overview">Refresh</button></div><div class="table-shell"><table><thead><tr><th>Server</th><th>Platform</th><th>Health</th><th>CPU</th><th>Memory</th><th>Disk</th><th>Last seen</th></tr></thead><tbody id="overview-table"></tbody></table></div></section>
-<section id="fleet-view" class="view hidden"><div class="section-head"><div><div class="eyebrow">SERVER INVENTORY</div><h3>Managed fleet</h3></div><input id="server-search" class="search" placeholder="Search servers"></div><div id="fleet-cards" class="fleet-grid"></div></section>
-<section id="jobs-view" class="view hidden"><div class="section-head"><div><div class="eyebrow">CONTROLLED OPERATIONS</div><h3>Operations queue</h3></div><button class="ghost" id="refresh-jobs">Refresh</button></div><div class="table-shell"><table><thead><tr><th>Action</th><th>Server</th><th>State</th><th>Created</th><th>Result</th></tr></thead><tbody id="jobs-table"></tbody></table></div></section>
-<section id="audit-view" class="view hidden"><div class="section-head"><div><div class="eyebrow">CONTROL TRAIL</div><h3>Audit events</h3></div><button class="ghost" id="refresh-audit">Refresh</button></div><div class="table-shell"><table><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead><tbody id="audit-table"></tbody></table></div></section></main></div>
-<div id="server-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="server-modal-title"><div class="modal-backdrop"></div><div class="modal-card"><div class="modal-head"><div><div class="eyebrow">ENROLLMENT</div><h3 id="server-modal-title">Connect a server</h3></div><button id="close-server-modal" class="icon-button" aria-label="Close modal">×</button></div><p class="muted">Generate a single-use enrollment token. Run the agent on the target server with this token over a trusted HTTPS connection.</p><div id="enrollment-output" class="token-box hidden"><span>Enrollment token</span><code id="enrollment-token"></code><small id="enrollment-expiry"></small></div><button id="generate-token" class="primary wide">Generate enrollment token</button><div class="code-block"><pre>python -m agent --controller https://your-helix-host --enrollment-token &lt;TOKEN&gt;</pre></div></div></div>
-<div id="action-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="action-title"><div class="modal-backdrop"></div><div class="modal-card compact"><div class="modal-head"><div><div class="eyebrow">SERVER ACTION</div><h3 id="action-title">Run action</h3></div><button id="close-action-modal" class="icon-button" aria-label="Close modal">×</button></div><div id="action-description" class="muted"></div><label id="service-field" class="hidden">Service name<input id="service-name" maxlength="128" placeholder="nginx"></label><div class="modal-actions"><button id="cancel-action" class="ghost">Cancel</button><button id="confirm-action" class="primary">Queue action</button></div></div></div>
-<script src="/static/app.js" defer></script>
-</body></html>
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <!-- Login View -->
+  <div id="login" class="login-shell">
+    <div class="login-backdrop-glow"></div>
+    <div class="login-card">
+      <div class="login-header">
+        <div class="brand-mark">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+        </div>
+        <div class="brand-text">
+          <span class="eyebrow">ENTERPRISE CONTROL PLANE</span>
+          <h1>Helix</h1>
+        </div>
+      </div>
+      <p class="login-subtitle">Authenticate to access corporate infrastructure operations and server fleet management.</p>
+
+      <form id="login-form" autocomplete="on">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <div class="input-wrapper">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            <input id="username" type="text" autocomplete="username" placeholder="Operator username" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <div class="input-wrapper">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            <input id="password" type="password" autocomplete="current-password" placeholder="Account password" required>
+          </div>
+        </div>
+        <button class="btn btn-primary wide" type="submit">
+          <span>Authenticate Session</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+        </button>
+        <div id="login-error" class="form-error" role="alert"></div>
+      </form>
+      <div class="login-footer">
+        <span class="security-badge">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          Encrypted Control Channel
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Application Shell -->
+  <div id="app" class="app-shell hidden">
+    <!-- Sidebar Overlay for Mobile -->
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark small">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+        </div>
+        <div class="brand-info">
+          <strong>Helix Platform</strong>
+          <span>Glowhaven Control</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section-title">COMMAND CENTER</div>
+        <button class="nav-item active" data-view="overview">
+          <div class="nav-item-content">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+            <span>Overview</span>
+          </div>
+          <kbd>01</kbd>
+        </button>
+        <button class="nav-item" data-view="fleet">
+          <div class="nav-item-content">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+            <span>Fleet Inventory</span>
+          </div>
+          <kbd>02</kbd>
+        </button>
+
+        <div class="nav-section-title">GOVERNANCE & OPS</div>
+        <button class="nav-item" data-view="jobs">
+          <div class="nav-item-content">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+            <span>Operations Queue</span>
+          </div>
+          <kbd>03</kbd>
+        </button>
+        <button class="nav-item admin-only" data-view="audit">
+          <div class="nav-item-content">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+            <span>Audit Trail</span>
+          </div>
+          <kbd>04</kbd>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="system-status-indicator">
+          <span class="status-dot online"></span>
+          <div class="status-text">
+            <strong>Control Plane</strong>
+            <span class="status-sub">Operational · v0.1.0</span>
+          </div>
+        </div>
+        <button id="logout" class="btn btn-ghost wide logout-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+          <span>Sign out</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Workspace Area -->
+    <main class="workspace">
+      <!-- Topbar Header -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <button id="mobile-nav-toggle" class="icon-btn mobile-only" aria-label="Toggle Navigation">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          </button>
+          <div class="title-meta">
+            <div class="eyebrow" id="view-kicker">OPERATIONS</div>
+            <h2 id="view-title">Fleet overview</h2>
+          </div>
+        </div>
+
+        <div class="top-actions">
+          <div class="user-badge">
+            <span class="user-avatar" id="user-avatar-initial">A</span>
+            <div class="user-info">
+              <span id="identity" class="identity">admin · admin</span>
+            </div>
+          </div>
+          <button id="add-server" class="btn btn-primary admin-only">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <span>Enroll Server</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Views Container -->
+      <div class="workspace-body">
+        <!-- Overview View -->
+        <section id="overview-view" class="view">
+          <div class="summary-grid">
+            <article class="metric-card">
+              <div class="metric-header">
+                <span class="metric-label">Managed Fleet</span>
+                <span class="metric-icon cyan">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect></svg>
+                </span>
+              </div>
+              <strong id="metric-servers" class="metric-value">0</strong>
+              <small class="metric-sub">Total registered server nodes</small>
+            </article>
+
+            <article class="metric-card">
+              <div class="metric-header">
+                <span class="metric-label">Healthy Nodes</span>
+                <span class="metric-icon green">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                </span>
+              </div>
+              <strong id="metric-online" class="metric-value">0</strong>
+              <small id="metric-online-sub" class="metric-sub">0 online now</small>
+            </article>
+
+            <article class="metric-card">
+              <div class="metric-header">
+                <span class="metric-label">Attention Needed</span>
+                <span class="metric-icon amber">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                </span>
+              </div>
+              <strong id="metric-warning" class="metric-value">0</strong>
+              <small class="metric-sub">Nodes reporting resource pressure</small>
+            </article>
+
+            <article class="metric-card">
+              <div class="metric-header">
+                <span class="metric-label">Queued Work</span>
+                <span class="metric-icon violet">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                </span>
+              </div>
+              <strong id="metric-queued" class="metric-value">0</strong>
+              <small id="metric-failed-sub" class="metric-sub">0 failed in last 24h</small>
+            </article>
+          </div>
+
+          <div class="section-head">
+            <div class="section-title-group">
+              <div class="eyebrow">LIVE TELEMETRY</div>
+              <h3>Active Server Fleet</h3>
+            </div>
+            <div class="section-controls">
+              <button class="btn btn-ghost" id="refresh-overview">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                <span>Refresh</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="table-shell">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Server Identity</th>
+                  <th>Platform &amp; Arch</th>
+                  <th>Status</th>
+                  <th>CPU Usage</th>
+                  <th>Memory</th>
+                  <th>Disk</th>
+                  <th>Last Seen</th>
+                </tr>
+              </thead>
+              <tbody id="overview-table">
+                <!-- Populated dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Fleet View -->
+        <section id="fleet-view" class="view hidden">
+          <div class="section-head">
+            <div class="section-title-group">
+              <div class="eyebrow">SERVER INVENTORY</div>
+              <h3>Managed Fleet</h3>
+            </div>
+            <div class="section-controls search-controls">
+              <div class="search-input-wrapper">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input id="server-search" class="search-input" placeholder="Search by name, hostname, OS..." type="search">
+              </div>
+            </div>
+          </div>
+
+          <div id="fleet-cards" class="fleet-grid">
+            <!-- Populated dynamically -->
+          </div>
+        </section>
+
+        <!-- Operations View -->
+        <section id="jobs-view" class="view hidden">
+          <div class="section-head">
+            <div class="section-title-group">
+              <div class="eyebrow">CONTROLLED OPERATIONS</div>
+              <h3>Operations Queue</h3>
+            </div>
+            <div class="section-controls search-controls">
+              <div class="search-input-wrapper">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input id="jobs-search" class="search-input" placeholder="Filter operations..." type="search">
+              </div>
+              <button class="btn btn-ghost" id="refresh-jobs">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                <span>Refresh</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="table-shell">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Action</th>
+                  <th>Target Server</th>
+                  <th>Execution State</th>
+                  <th>Queued Time</th>
+                  <th>Execution Output</th>
+                </tr>
+              </thead>
+              <tbody id="jobs-table">
+                <!-- Populated dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Audit View -->
+        <section id="audit-view" class="view hidden">
+          <div class="section-head">
+            <div class="section-title-group">
+              <div class="eyebrow">CONTROL TRAIL</div>
+              <h3>Audit Trail</h3>
+            </div>
+            <div class="section-controls search-controls">
+              <div class="search-input-wrapper">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input id="audit-search" class="search-input" placeholder="Filter audit log..." type="search">
+              </div>
+              <button class="btn btn-ghost" id="refresh-audit">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                <span>Refresh</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="table-shell">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Actor</th>
+                  <th>Action</th>
+                  <th>Target</th>
+                  <th>Payload Details</th>
+                </tr>
+              </thead>
+              <tbody id="audit-table">
+                <!-- Populated dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- Server Enrollment Modal -->
+  <div id="server-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="server-modal-title">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <div class="eyebrow">AGENT ENROLLMENT</div>
+          <h3 id="server-modal-title">Connect Infrastructure Node</h3>
+        </div>
+        <button id="close-server-modal" class="icon-btn" aria-label="Close modal">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <p class="muted">Generate an expiring single-use enrollment token for agent authentication. Run the agent executable on the target host with this token.</p>
+
+      <div id="enrollment-output" class="token-box hidden">
+        <div class="token-header">
+          <span>Enrollment Token</span>
+          <button id="copy-token-btn" class="btn btn-ghost btn-sm">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            <span>Copy</span>
+          </button>
+        </div>
+        <code id="enrollment-token"></code>
+        <small id="enrollment-expiry" class="muted-small"></small>
+      </div>
+
+      <button id="generate-token" class="btn btn-primary wide margin-v">Generate Token</button>
+
+      <div class="code-block-wrapper">
+        <div class="code-label">Enrollment Command</div>
+        <div class="code-block">
+          <pre><code id="enroll-command">python -m agent --controller https://your-helix-host --enrollment-token &lt;TOKEN&gt; --name prod-web-01</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Action Confirmation Modal -->
+  <div id="action-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="action-title">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card compact">
+      <div class="modal-head">
+        <div>
+          <div class="eyebrow">CONTROLLED OPERATION</div>
+          <h3 id="action-title">Run Action</h3>
+        </div>
+        <button id="close-action-modal" class="icon-btn" aria-label="Close modal">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div id="action-description" class="muted margin-v"></div>
+
+      <div id="service-field" class="form-group hidden">
+        <label for="service-name">Target Service Name</label>
+        <div class="input-wrapper">
+          <input id="service-name" maxlength="128" placeholder="e.g. nginx, postgresql, docker">
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="cancel-action" class="btn btn-ghost">Cancel</button>
+        <button id="confirm-action" class="btn btn-primary">Queue Action</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Detail Payload Modal (for viewing full audit details or job outputs) -->
+  <div id="detail-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="detail-modal-title">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <div class="eyebrow" id="detail-modal-kicker">PAYLOAD DATA</div>
+          <h3 id="detail-modal-title">Event Detail</h3>
+        </div>
+        <button id="close-detail-modal" class="icon-btn" aria-label="Close modal">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="code-block-wrapper margin-v">
+        <div class="code-block json-block">
+          <pre><code id="detail-modal-code"></code></pre>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="copy-detail-btn" class="btn btn-ghost">Copy JSON</button>
+        <button id="close-detail-btn" class="btn btn-primary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
