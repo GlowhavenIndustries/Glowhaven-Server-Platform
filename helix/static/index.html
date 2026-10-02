@@ -41,6 +41,13 @@
             <input id="password" type="password" autocomplete="current-password" placeholder="Account password" required>
           </div>
         </div>
+        <div class="form-group">
+          <label for="login-totp">2FA Code (If Enabled)</label>
+          <div class="input-wrapper">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M12 15v2m0-8v2"></path></svg>
+            <input id="login-totp" type="text" maxlength="6" autocomplete="one-time-code" placeholder="6-digit authenticator code">
+          </div>
+        </div>
         <button class="btn btn-primary wide" type="submit">
           <span>Authenticate Session</span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
@@ -104,6 +111,20 @@
             <span>Audit Trail</span>
           </div>
           <kbd>04</kbd>
+        </button>
+        <button class="nav-item admin-only" data-view="users">
+          <div class="nav-item-content">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+            <span>User Accounts</span>
+          </div>
+          <kbd>05</kbd>
+        </button>
+        <button class="nav-item" data-view="security">
+          <div class="nav-item-content">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            <span>Security &amp; 2FA</span>
+          </div>
+          <kbd>06</kbd>
         </button>
       </nav>
 
@@ -302,11 +323,20 @@
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                 <input id="audit-search" class="search-input" placeholder="Filter audit log..." type="search">
               </div>
+              <button class="btn btn-ghost" id="verify-audit-btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                <span>Verify Integrity Chain</span>
+              </button>
               <button class="btn btn-ghost" id="refresh-audit">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
                 <span>Refresh</span>
               </button>
             </div>
+          </div>
+
+          <div id="audit-verify-banner" class="token-box hidden margin-v">
+            <strong id="audit-banner-title"></strong>
+            <small id="audit-banner-sub" class="muted-small"></small>
           </div>
 
           <div class="table-shell">
@@ -317,6 +347,7 @@
                   <th>Actor</th>
                   <th>Action</th>
                   <th>Target</th>
+                  <th>Cryptographic Hash</th>
                   <th>Payload Details</th>
                 </tr>
               </thead>
@@ -324,6 +355,96 @@
                 <!-- Populated dynamically -->
               </tbody>
             </table>
+          </div>
+        </section>
+
+        <!-- User Accounts View (Admin Only) -->
+        <section id="users-view" class="view hidden">
+          <div class="section-head">
+            <div class="section-title-group">
+              <div class="eyebrow">IDENTITY &amp; ACCESS</div>
+              <h3>User Accounts</h3>
+            </div>
+            <div class="section-controls">
+              <button class="btn btn-primary" id="add-user-btn">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                <span>Create User</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="table-shell">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>Role</th>
+                  <th>2FA Status</th>
+                  <th>Created At</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="users-table">
+                <!-- Populated dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Security & 2FA View -->
+        <section id="security-view" class="view hidden">
+          <div class="section-head">
+            <div class="section-title-group">
+              <div class="eyebrow">CREDENTIALS &amp; SESSIONS</div>
+              <h3>Security &amp; Multi-Factor Authentication</h3>
+            </div>
+          </div>
+
+          <div class="summary-grid" style="grid-template-columns: 1fr 1fr; gap: 24px;">
+            <article class="metric-card" style="align-items: flex-start;">
+              <h4>Two-Factor Authentication (TOTP)</h4>
+              <p class="muted margin-v">Protect your account with an authenticator app (Google Authenticator, 1Password, Bitwarden, Authy).</p>
+
+              <div id="mfa-status-block" class="margin-v">
+                <span id="mfa-status-pill" class="status-pill offline"><span class="status-dot offline"></span> 2FA Disabled</span>
+              </div>
+
+              <div id="mfa-setup-box" class="token-box hidden margin-v" style="width: 100%;">
+                <div class="code-label">TOTP Secret Key</div>
+                <code id="mfa-secret-code"></code>
+                <small class="muted-small">Enter this key into your authenticator app, or use URI: <span id="mfa-uri-text" style="word-break: break-all;"></span></small>
+
+                <div class="form-group margin-v">
+                  <label for="mfa-verify-code">Verification Code</label>
+                  <input id="mfa-verify-code" type="text" maxlength="6" placeholder="6-digit code from app">
+                </div>
+                <button id="mfa-enable-btn" class="btn btn-primary wide">Enable 2FA</button>
+              </div>
+
+              <div id="mfa-action-controls" class="margin-v">
+                <button id="mfa-init-btn" class="btn btn-primary">Setup 2FA</button>
+                <button id="mfa-disable-init-btn" class="btn btn-ghost hidden">Disable 2FA</button>
+              </div>
+            </article>
+
+            <article class="metric-card" style="align-items: flex-start;">
+              <h4>Active Sessions</h4>
+              <p class="muted margin-v">List of active session tokens associated with your account.</p>
+              <div class="table-shell" style="width: 100%;">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Expires At</th>
+                      <th>State</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sessions-table">
+                    <!-- Populated dynamically -->
+                  </tbody>
+                </table>
+              </div>
+            </article>
           </div>
         </section>
       </div>
@@ -390,10 +511,82 @@
         </div>
       </div>
 
+      <div id="stepup-field" class="form-group hidden margin-v">
+        <label for="stepup-code">Step-Up 2FA Code (Required for Node Reboot / Shutdown)</label>
+        <div class="input-wrapper">
+          <input id="stepup-code" maxlength="6" placeholder="6-digit TOTP code">
+        </div>
+      </div>
+
       <div class="modal-actions">
         <button id="cancel-action" class="btn btn-ghost">Cancel</button>
         <button id="confirm-action" class="btn btn-primary">Queue Action</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Create User Modal -->
+  <div id="create-user-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="create-user-title">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card compact">
+      <div class="modal-head">
+        <div>
+          <div class="eyebrow">IDENTITY &amp; ACCESS</div>
+          <h3 id="create-user-title">Create User Account</h3>
+        </div>
+        <button id="close-create-user-modal" class="icon-btn" aria-label="Close modal">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <form id="create-user-form" class="margin-v">
+        <div class="form-group">
+          <label for="new-username">Username</label>
+          <input id="new-username" type="text" required placeholder="e.g. j.doe">
+        </div>
+        <div class="form-group">
+          <label for="new-password">Password (min 8 chars, letters &amp; digits)</label>
+          <input id="new-password" type="password" required placeholder="Strong password">
+        </div>
+        <div class="form-group">
+          <label for="new-role">Role</label>
+          <select id="new-role" style="width: 100%; padding: 8px; background: var(--surface-primary); border: 1px solid var(--border-muted); color: var(--text-primary); border-radius: var(--radius-md);">
+            <option value="viewer">viewer (Read-only)</option>
+            <option value="operator">operator (Read &amp; Execute Operations)</option>
+            <option value="admin">admin (Full Control &amp; User Mgmt)</option>
+          </select>
+        </div>
+        <div class="modal-actions margin-v">
+          <button type="button" id="cancel-create-user" class="btn btn-ghost">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create User</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Reset Password Modal -->
+  <div id="reset-password-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="reset-password-title">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card compact">
+      <div class="modal-head">
+        <div>
+          <div class="eyebrow">CREDENTIAL MANAGEMENT</div>
+          <h3 id="reset-password-title">Reset User Password</h3>
+        </div>
+        <button id="close-reset-password-modal" class="icon-btn" aria-label="Close modal">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <form id="reset-password-form" class="margin-v">
+        <p class="muted">Resetting password will immediately invalidate all active sessions for this user.</p>
+        <div class="form-group margin-v">
+          <label for="reset-new-password">New Password</label>
+          <input id="reset-new-password" type="password" required placeholder="New strong password">
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="cancel-reset-password" class="btn btn-ghost">Cancel</button>
+          <button type="submit" class="btn btn-primary">Set New Password</button>
+        </div>
+      </form>
     </div>
   </div>
 
