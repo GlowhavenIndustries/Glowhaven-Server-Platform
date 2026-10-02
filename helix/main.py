@@ -6,7 +6,7 @@ import re
 import secrets
 import sqlite3
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request, Response
@@ -208,32 +208,42 @@ async def me(session: sqlite3.Row = Depends(current_session)):
 @app.get("/api/summary")
 async def summary(_: sqlite3.Row = Depends(current_session)):
     rows = db.all("SELECT * FROM servers")
-    statuses = [effective_status(row) for row in rows]
+    now = utcnow()
+    # Cache timestamp across iteration and count statuses efficiently
+    statuses = [effective_status(row, now=now) for row in rows]
     queued = db.one("SELECT COUNT(*) AS c FROM jobs WHERE status='queued'")["c"]
-    failed = db.one("SELECT COUNT(*) AS c FROM jobs WHERE status='failed' AND created_at >= ?", ((utcnow() - timedelta(hours=24)).isoformat(),))["c"]
+    failed = db.one("SELECT COUNT(*) AS c FROM jobs WHERE status='failed' AND created_at >= ?", ((now - timedelta(hours=24)).isoformat(),))["c"]
     return {"servers": len(rows), "online": statuses.count("online"), "warning": statuses.count("warning"), "queued_jobs": queued, "failed_jobs_24h": failed}
 
 
-def effective_status(row: sqlite3.Row) -> str:
+def effective_status(row: sqlite3.Row, now: datetime | None = None) -> str:
+    """
+    Computes effective server status (online, warning, or offline).
+    Accepts an optional pre-computed `now` timestamp to avoid repeated system clock calls
+    when batch-evaluating multiple servers.
+    """
     last_seen = row["last_seen"]
     if not last_seen:
         return "offline"
+    if now is None:
+        now = utcnow()
     try:
-        age = (utcnow() - __import__("datetime").datetime.fromisoformat(last_seen)).total_seconds()
+        age = (now - datetime.fromisoformat(last_seen)).total_seconds()
     except ValueError:
         return "offline"
     if age > 90:
         return "offline"
-    if max(float(row["cpu_percent"]), float(row["memory_percent"]), float(row["disk_percent"])) >= 90:
+    # Direct numeric check avoids string/float conversion overhead and list creation
+    if row["cpu_percent"] >= 90 or row["memory_percent"] >= 90 or row["disk_percent"] >= 90:
         return "warning"
     return "online"
 
 
-def serialize_server(row: sqlite3.Row) -> dict[str, Any]:
+def serialize_server(row: sqlite3.Row, now: datetime | None = None) -> dict[str, Any]:
     return {
         "id": row["id"], "name": row["name"], "hostname": row["hostname"],
         "platform": row["platform"], "arch": row["arch"], "os_version": row["os_version"],
-        "status": effective_status(row), "last_seen": row["last_seen"],
+        "status": effective_status(row, now=now), "last_seen": row["last_seen"],
         "cpu_percent": row["cpu_percent"], "memory_percent": row["memory_percent"],
         "disk_percent": row["disk_percent"], "uptime_seconds": row["uptime_seconds"],
         "inventory": db.json(row["inventory_json"]), "labels": db.json(row["labels_json"]),
@@ -244,7 +254,8 @@ def serialize_server(row: sqlite3.Row) -> dict[str, Any]:
 @app.get("/api/servers")
 async def servers(_: sqlite3.Row = Depends(current_session)):
     rows = db.all("SELECT * FROM servers ORDER BY name COLLATE NOCASE")
-    return [serialize_server(row) for row in rows]
+    now = utcnow()
+    return [serialize_server(row, now=now) for row in rows]
 
 
 @app.get("/api/servers/{server_id}")
