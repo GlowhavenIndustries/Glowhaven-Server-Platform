@@ -85,7 +85,7 @@ Add servers through expiring, single-use enrollment tokens.
 
 The workflow is intentionally simple:
 
-\`\`\`text
+```text
 Admin
   |
   | Generate enrollment token
@@ -99,7 +99,7 @@ Helix Agent
   | Telemetry + controlled jobs
   v
 Managed Server
-\`\`\`
+```
 
 ### Auditability
 
@@ -109,7 +109,7 @@ Security-relevant activity is recorded as structured audit events, giving operat
 
 ## Architecture
 
-\`\`\`text
+```text
                          CORPORATE INFRASTRUCTURE
                                   |
                     +-------------+-------------+
@@ -138,7 +138,7 @@ Security-relevant activity is recorded as structured audit events, giving operat
              +-------------+ +----------+ +------------+
                     |
              telemetry + approved operations
-\`\`\`
+```
 
 The current release uses SQLite for a straightforward self-hosted deployment. The architecture is intentionally shaped so the persistence layer can evolve to PostgreSQL and high-availability deployment as the platform matures.
 
@@ -191,7 +191,7 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting and security expectat
 
 ### Local development
 
-\`\`\`bash
+```bash
 git clone https://github.com/GlowhavenIndustries/Glowhaven-Server-Platform.git
 cd Glowhaven-Server-Platform
 
@@ -213,28 +213,28 @@ $env:HELIX_BOOTSTRAP_PASSWORD="replace-with-a-long-random-password"
 export HELIX_BOOTSTRAP_PASSWORD="replace-with-a-long-random-password"
 
 uvicorn helix.main:app --host 127.0.0.1 --port 8700
-\`\`\`
+```
 
 Open:
 
-\`\`\`
+```
 http://127.0.0.1:8700
-\`\`\`
+```
 
 Default bootstrap username:
 
-\`\`\`
+```
 admin
-\`\`\`
+```
 
 The password should always be supplied through environment configuration in real deployments.
 
 ### Docker
 
-\`\`\`bash
+```bash
 cp .env.example .env
 docker compose up --build
-\`\`\`
+```
 
 For production, terminate TLS at a trusted reverse proxy, enable secure cookies, provide durable storage, and protect the control plane from untrusted network exposure.
 
@@ -246,12 +246,12 @@ Sign in as an administrator and select **Add server**.
 
 Generate a single-use enrollment token, then run the agent on the target server:
 
-\`\`\`bash
+```bash
 python -m agent \
   --controller https://helix.example.internal \
   --enrollment-token <TOKEN> \
   --name prod-web-01
-\`\`\`
+```
 
 After registration, the agent stores its returned credential locally with restrictive file permissions where the operating system supports them.
 
@@ -278,9 +278,9 @@ It collects:
 
 It can execute only the operations exposed by the control plane's action catalog.
 
-On Linux, service operations use \`systemctl\`.
+On Linux, service operations use `systemctl`.
 
-On Windows, service operations use \`sc.exe\`.
+On Windows, service operations use `sc.exe`.
 
 This design keeps the security boundary visible in both the controller and the agent.
 
@@ -288,7 +288,7 @@ This design keeps the security boundary visible in both the controller and the a
 
 ## Repository structure
 
-\`\`\`text
+```text
 Glowhaven-Server-Platform/
 ├── helix/
 │   ├── __init__.py
@@ -316,7 +316,7 @@ Glowhaven-Server-Platform/
 ├── pyproject.toml
 ├── requirements.txt
 └── requirements-dev.txt
-\`\`\`
+```
 
 ---
 
@@ -324,15 +324,15 @@ Glowhaven-Server-Platform/
 
 Run the test suite:
 
-\`\`\`bash
+```bash
 pytest -q
-\`\`\`
+```
 
 Run syntax validation:
 
-\`\`\`bash
+```bash
 python -m py_compile helix/*.py agent/*.py
-\`\`\`
+```
 
 The CI workflow runs the test suite, Python compilation checks, and dependency vulnerability auditing.
 
