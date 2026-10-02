@@ -1,0 +1,4 @@
+## 2026-03-31 - Password Hash Delimiter Escaping in F-Strings
+**Vulnerability:** Accidental backslash escapes before `$` in f-string hash generation (`f"scrypt\$..."`) resulted in stored password hashes containing literal `\` characters (`scrypt\$...`). When `verify_secret` split on `$`, the scheme evaluated to `scrypt\` instead of `scrypt`, causing all password verifications to fail.
+**Learning:** Python f-strings treat `\$` as literal `\` followed by `$`. When implementing custom serialized security formats (such as PHC/Modular Crypt Format), delimiter characters must not be escaped in f-strings.
+**Prevention:** Verify authentication unit tests validate end-to-end credential verification rather than mocking password verification functions, and run linting tools that catch invalid escape sequences in string literals.
