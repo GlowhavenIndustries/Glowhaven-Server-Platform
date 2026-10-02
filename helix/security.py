@@ -20,7 +20,8 @@ def hash_secret(secret: str) -> str:
     digest = hashlib.scrypt(
         secret.encode("utf-8"), salt=salt, n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P, dklen=KEY_BYTES
     )
-    return f"scrypt\${SCRYPT_N}\${SCRYPT_R}\${SCRYPT_P}\${salt.hex()}\${digest.hex()}"
+    # Delimiters in the stored hash string must be unescaped '$' so verify_secret can parse scheme and params
+    return f"scrypt${SCRYPT_N}${SCRYPT_R}${SCRYPT_P}${salt.hex()}${digest.hex()}"
 
 def verify_secret(secret: str, encoded: str) -> bool:
     try:
