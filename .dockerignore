@@ -1,0 +1,10 @@
+.git
+.github
+.pytest_cache
+__pycache__
+*.pyc
+.venv
+.env
+helix.db
+agent/agent.json
+tests
