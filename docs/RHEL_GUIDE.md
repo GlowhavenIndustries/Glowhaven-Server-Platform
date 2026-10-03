@@ -145,11 +145,18 @@ sudo firewall-cmd --reload
 
 ### SELinux
 
-If SELinux is in `Enforcing` mode, ensure the file contexts for `/opt/helix-agent` are set properly:
+If SELinux is in `Enforcing` mode, label executable code paths under `/opt/helix-agent` and keep writable state in a separate directory:
 
 ```bash
-sudo semanage fcontext -a -t bin_t "/opt/helix-agent(/.*)?"
-sudo restorecon -R /opt/helix-agent
+# Writable state (credentials/runtime data)
+sudo mkdir -p /var/lib/helix-agent
+sudo semanage fcontext -a -t var_lib_t "/var/lib/helix-agent(/.*)?"
+
+# Executable code / virtualenv paths only
+sudo semanage fcontext -a -t bin_t "/opt/helix-agent/bin(/.*)?"
+sudo semanage fcontext -a -t bin_t "/opt/helix-agent/venv/bin(/.*)?"
+
+sudo restorecon -R /opt/helix-agent /var/lib/helix-agent
 ```
 
 ---
