@@ -1,0 +1,42 @@
+name: Bug Report / 问题反馈
+description: Report an issue or unexpected behavior in Glowhaven Helix / 报告软件错误或异常行为
+title: "[BUG]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report! / 感谢您提交 Bug 报告！
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description / 问题描述
+      description: A clear and concise description of what the bug is. / 简要描述遇到的 Bug。
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Operating System & Environment / 操作系统与环境信息
+      description: OS version (e.g. RHEL 9.2, Rocky 9, Ubuntu 22.04), Python version, etc. / 请提供操作系统版本及 Python 版本。
+      placeholder: "e.g., RHEL 9.3, Python 3.12, Agent v0.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce / 复现步骤
+      description: Steps to reproduce the behavior. / 如何复现该问题。
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior / 期望行为
+      description: What you expected to happen. / 期望的正常行为。
+    validations:
+      required: false

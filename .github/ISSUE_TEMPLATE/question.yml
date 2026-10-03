@@ -1,0 +1,16 @@
+name: Question & Discussion / 提问与讨论
+description: Ask a question or request guidance about deploying/using Helix / 询问关于 Helix 部署或使用的疑问
+title: "[QUESTION]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question about Helix, Enterprise Linux (RHEL) integration, or configuration? / 有关于 Helix 部署、RHEL 集成或配置的疑问？
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question / 您的疑问
+      description: Describe what you would like to ask or clarify. / 描述您想了解或澄清的问题。
+    validations:
+      required: true
