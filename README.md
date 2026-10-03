@@ -1,5 +1,7 @@
 # Glowhaven Server Platform
 
+[English](README.md) | [简体中文](README_zh-CN.md)
+
 <div align="center">
 
 # **Glowhaven Helix**
@@ -73,6 +75,7 @@ To maintain clarity around architectural scope, Helix is intentionally bounded:
 | **Bounded Server Operations** | Available | Parameter-validated action catalog (`reboot`, `shutdown`, `service_*`) |
 | **Linux Service Management** | Available | Process orchestration via `systemctl` (`start`, `stop`, `restart`) |
 | **Windows Service Management** | Available | Process orchestration via `sc.exe` (`start`, `stop`, `restart`) |
+| **Enterprise Linux (RHEL/Rocky/Alma)** | Available | Systemd service integration & firewalld guidelines ([RHEL Deployment Guide](docs/RHEL_GUIDE.md)) |
 | **Audit Logging & Verification** | Available | SHA-256 prev-hash linked ledger with `/api/audit/verify` integrity endpoint |
 | **Authentication & RBAC** | Available | scrypt password hashing, session tokens, role tiers (`admin`, `operator`, `viewer`) |
 | **TOTP Step-Up MFA** | Available | RFC 6238 TOTP enforcement for login and destructive operations |

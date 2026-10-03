@@ -1,0 +1,30 @@
+name: Feature Request / 功能建议
+description: Suggest an idea or enhancement for Glowhaven Helix / 为 Helix 提交新功能建议或优化改进
+title: "[FEATURE]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Suggest an enhancement or new feature for Helix / 提交功能需求或建议
+  - type: textarea
+    id: problem
+    attributes:
+      label: Is your feature request related to a problem? / 该需求是否解决某个特定问题？
+      description: Clear description of what the problem is. / 简要描述问题场景。
+    validations:
+      required: false
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution / 建议的解决方案
+      description: Describe the solution you'd like to see implemented. / 详细描述您期望实现的功能方案。
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered / 替代方案
+      description: Any alternative solutions or features you've considered. / 考虑过的其他替代方案。
+    validations:
+      required: false
