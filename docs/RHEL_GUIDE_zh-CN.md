@@ -144,11 +144,19 @@ sudo firewall-cmd --reload
 
 ### SELinux 配置
 
-若 SELinux 处于 `Enforcing` 强制模式，请确保 `/opt/helix-agent` 拥有正确的文件上下文：
+若 SELinux 处于 `Enforcing` 强制模式，请仅为不可变代码路径设置 `bin_t`，并将可写状态放到独立目录：
 
 ```bash
-sudo semanage fcontext -a -t bin_t "/opt/helix-agent(/.*)?"
-sudo restorecon -R /opt/helix-agent
+# 仅标记代码/虚拟环境为可执行类型
+sudo semanage fcontext -a -t bin_t "/opt/helix-agent/bin(/.*)?"
+sudo semanage fcontext -a -t bin_t "/opt/helix-agent/venv(/.*)?"
+
+# 可写状态目录使用数据类型（例如 agent.json、运行时文件）
+sudo mkdir -p /var/lib/helix-agent
+sudo semanage fcontext -a -t var_lib_t "/var/lib/helix-agent(/.*)?"
+
+# 应用标签
+sudo restorecon -R /opt/helix-agent /var/lib/helix-agent
 ```
 
 ---
