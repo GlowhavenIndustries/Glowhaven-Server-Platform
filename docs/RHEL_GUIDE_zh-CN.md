@@ -155,10 +155,10 @@ sudo restorecon -R /opt/helix-agent
 
 ## 第七步：通过 Sudo / Polkit 提权服务管理 (可选)
 
-若 `helix` 用户需要执行 `systemctl` 重启系统服务，可以在 `/etc/sudoers.d/helix-agent` 中添加受限 sudo 规则：
+若 `helix` 用户需要执行 `systemctl` 管理系统服务，可以在 `/etc/sudoers.d/helix-agent` 中添加**仅限明确服务名**的受限 sudo 规则（请按实际服务替换）：
 
 ```text
-helix ALL=(ALL) NOPASSWD: /usr/bin/systemctl start *, /usr/bin/systemctl stop *, /usr/bin/systemctl restart *
+helix ALL=(ALL) NOPASSWD: /usr/bin/systemctl start nginx.service, /usr/bin/systemctl stop nginx.service, /usr/bin/systemctl restart nginx.service, /usr/bin/systemctl start myapp.service, /usr/bin/systemctl stop myapp.service, /usr/bin/systemctl restart myapp.service
 ```
 
 确保权限设为 `0440`：
