@@ -163,11 +163,13 @@ sudo restorecon -R /opt/helix-agent /var/lib/helix-agent
 
 ## Step 7: Managing Services via Sudo / Polkit (Optional)
 
-If the `helix` agent user needs permission to restart system services via `systemctl`, add a targeted sudoers rule in `/etc/sudoers.d/helix-agent`:
+If the `helix` agent user needs permission to manage services via `systemctl`, add a **restricted** sudoers rule in `/etc/sudoers.d/helix-agent` that allowlists only required units:
 
 ```text
-helix ALL=(ALL) NOPASSWD: /usr/bin/systemctl start *, /usr/bin/systemctl stop *, /usr/bin/systemctl restart *
+helix ALL=(ALL) NOPASSWD: /usr/bin/systemctl start nginx.service, /usr/bin/systemctl stop nginx.service, /usr/bin/systemctl restart nginx.service, /usr/bin/systemctl restart myapp.service
 ```
+
+Replace `nginx.service` and `myapp.service` with only the specific units the agent must control.
 
 Ensure permissions are set to `0440`:
 
